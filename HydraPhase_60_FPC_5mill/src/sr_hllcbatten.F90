@@ -59,7 +59,6 @@ SUBROUTINE hllcbatten
   do i = 1, neles
 
 IF (iblank(i) /= 1) CYCLE  !------ONLY PROCEED IF IBLANK = 1 ----------------(mod3)
-
     ! ---------------------------------------------------------------
    rhs(i, 1) = 0.0d0
    rhs(i, 2) = 0.0d0

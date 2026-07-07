@@ -1,8 +1,11 @@
 PROGRAM Main
   USE mpi
   USE GlobalVariables
-  USE FluxModule 
+  USE FluxModule
+  USE ISO_C_BINDING
+  USE run_tioga, ONLY : tioga_init_conn, tioga_solutions, tioga_fin, iblankcells, nc_t
   implicit none
+
   external Read_flow
   external geometry
 
@@ -17,6 +20,12 @@ INTEGER :: i, j, k, l, ie, r, s, v, rv, p, alloc_anu,irank, dummy, writevar
 REAL(DP) :: qgi, qpi, bbb, ccc, aaa, phitotal, phigmin, eg, ep, romix, pmix, functiong, psig
 REAL(DP) :: diffu_global, diffv_global, diffw_global, diffp_global, tkgmax,tkgmin,tegmax,tegmin,amug 
 REAL(DP) :: epsilonmax,epsilonmin
+
+!Declarations for IDW reconstruction
+REAL(DP) :: cx, cy, cz, dist, w
+INTEGER  :: m, n, inode
+LOGICAL, ALLOCATABLE :: has_nan(:), has_valid(:)
+INTEGER :: mixed_cnt
 
 !Variable for Y_p
 REAL(DP) :: yfgdt,yogdt,ypgdt,cvg
@@ -35,7 +44,7 @@ CHARACTER(LEN=256) :: fname_grid, fname_bc, fname_procbc, fname_restart
 CHARACTER(LEN=256) :: restart_dir, tecplot_dir, fname_tec, geometry_dir
 
 character(len=1024) :: varList
-
+character(len=256) :: tioga_input_dir
 
 ! Logical flags
 LOGICAL :: dir_exists
@@ -47,6 +56,8 @@ LOGICAL :: dir_exists
    call MPI_INIT(ierr)
    call MPI_COMM_SIZE(MPI_COMM_WORLD, nprocs, ierr)
    call MPI_COMM_RANK(MPI_COMM_WORLD, myid, ierr)
+   
+   call get_environment_variable('TIOGA_INPUT_DIR', tioga_input_dir) ! Getting tioga input directory
 
    geometry_dir = 'geometry_files/'
    
@@ -107,6 +118,8 @@ NEQ  = 10
 NVAR = 33
 
 CALL Read_flow
+
+CALL tioga_init_conn(trim(tioga_input_dir))
 
 !==================================
 ! Base equations: phases
@@ -223,11 +236,13 @@ if(myid==0) print*, "neq" ,neq
   ALLOCATE(cu_send_pos(nprocs), cu_recv_pos(nprocs))
   ALLOCATE(dd(ntot))
 !============================================ 
-!Overset grid identity
+!Overset grid identity and Node+Cell q vals
 !============================================
-  ALLOCATE(g_id(ntot))
+  ALLOCATE(btag(ntot))
   ALLOCATE(iblank(ntot))
-  
+  ALLOCATE(qcell(neles*neq))
+  ALLOCATE(q_node(nodes*neq))
+  ALLOCATE(wsum(nodes))
 !=============================================
 !Pre caclulating the boundary cell information
 !=============================================   
@@ -388,6 +403,7 @@ end do
 ! Call Geometry Subroutine once
 !==============================  
 CALL geometry
+
   rogmax = pmax / (rrg * tgmax)
   ropmax = (pmax + pinf) * gamap / ((gamap - 1.0D0) * cpp * tpmax)
   
@@ -453,6 +469,7 @@ endif
 call mpiexcu
 
   ! Initialize viscosity variables
+write(*,*)"Neles,ntot,neq at init line 472 :",neles,ntot,neq
   DO i = 1, neles
    visug(i) = 0.0D0
    visvg(i) = 0.0D0
@@ -503,7 +520,7 @@ call mpiexcu
 !========================================
 !           Main iteration loop
 !========================================
-OPEN(unit=99, file='active_cells.dat', status='replace', action='write') !-----writing active cells (mod3)
+OPEN(unit=99, file='checking_nodes/active_cells.dat', status='replace', action='write') !-----writing active cells (mod3)
 do i = 1, neles
     if(iblank(i) == 1) WRITE(99, *) i
 end do
@@ -527,6 +544,7 @@ CLOSE(99)
 !$acc reduction(min:dtmin) &
 !$acc private(qpi,qgi,i,yfgdt,yogdt,ypgdt,cvg)      
     DO i = 1, neles
+    if(iblank(i)/=1)cycle
 #ifdef YP_P
      yfgdt=cu(i,nyfg)/cu(i,1)
      yogdt=cu(i,nyog)/cu(i,1)
@@ -588,6 +606,7 @@ CLOSE(99)
        diffv_global=0.0d0
        diffw_global=0.0d0
        diffp_global=0.0d0
+
 
 !=========================
 !Call primitive subroutine
@@ -654,7 +673,103 @@ if(myid==0)PRINT '(I6, 1PE20.10, 5F24.16)', iters, time, diffu_global, diffv_glo
 if(myid==0) write(23,*)time,vel_mag  
 
 !1742938
-END DO   
+END DO   !-----------Sub-iteration loop over
+
+
+!========================================================= Calculate inverse-distance weighted node q values (mod4) 
+!========================================================= 
+!q_node = 0.0 wsum = 0.0 DO ie = 1, neles
+!  if (iblank(ie) /= 1) CYCLE    ! skip non-field cells
+!  cx = SUM(x(nod(ie,1:4))) / 4.0
+!  cy = SUM(y(nod(ie,1:4))) / 4.0
+!  cz = SUM(z(nod(ie,1:4))) / 4.0
+!  DO m = 1, 4
+!    inode = nod(ie,m)
+!    dist = SQRT((x(inode)-cx)**2 + (y(inode)-cy)**2 + (z(inode)-cz)**2)
+!    w = 1.0 / dist
+!    DO k = 1, neq
+!      q_node((inode-1)*neq+k) = q_node((inode-1)*neq+k) + w*cu(ie,k)
+!    END DO
+!    wsum(inode) = wsum(inode) + w
+!  END DO
+!END DO
+!
+!open(unit=55, file='solved_nodes.dat', status='replace', action='write')
+!DO n = 1, nodes
+!  if (wsum(n) > 0.0) then
+!    DO k = 1, neq
+!      q_node((n-1)*neq+k) = q_node((n-1)*neq+k) / wsum(n)
+!    END DO
+!    write(55,*) n
+!  endif
+!END DO
+!close(55)
+
+ALLOCATE(has_nan(nodes), has_valid(nodes))
+has_nan = .false.
+has_valid = .false.
+q_node = 0.0
+wsum   = 0.0
+DO ie = 1, neles
+  if (iblank(ie) /= 1) CYCLE
+  cx = SUM(x(nod(ie,1:4))) / 4.0
+  cy = SUM(y(nod(ie,1:4))) / 4.0
+  cz = SUM(z(nod(ie,1:4))) / 4.0
+  DO m = 1, 4
+    inode = nod(ie,m)
+    dist = SQRT((x(inode)-cx)**2 + (y(inode)-cy)**2 + (z(inode)-cz)**2)
+    w = 1.0 / dist
+    IF (cu(ie,1) /= cu(ie,1)) THEN
+      has_nan(inode) = .true.
+    ELSE
+      has_valid(inode) = .true.
+      DO k = 1, neq
+        q_node((inode-1)*neq+k) = q_node((inode-1)*neq+k) + w*cu(ie,k)
+      END DO
+      wsum(inode) = wsum(inode) + w
+    END IF
+  END DO
+END DO
+
+mixed_cnt = COUNT(has_nan .AND. has_valid)
+print*, mixed_cnt
+open(unit=78,file='nan_field_cells.dat',status='replace')
+do ie=1,neles
+  if (iblank(ie)==1 .and. cu(ie,1)/=cu(ie,1)) write(78,*) ie
+end do
+close(78)
+
+open(unit=69,file='checking_nodes/wsum.dat',status='replace')
+open(unit=70,file='checking_nodes/cu.dat',status='replace')
+open(unit=71,file='checking_nodes/q_node.dat',status='replace')
+write(*,*) 'wsum zero count before tioga_solutions:'
+m = 0
+do n = 1, nodes
+  if (wsum(n) == 0.0) m = m + 1
+  write(69,*)wsum(n)
+enddo
+write(*,*) m
+! check cu for NaN
+m = 0
+do ie = 1, neles
+  if (isnan(cu(ie,1))) m = m + 1
+  write(70,*) (cu(ie,k), k=1,neq)
+enddo
+write(*,*) 'NaN cells in cu:', m
+
+! check q_node for NaN
+m = 0
+do n = 1, nodes
+  if (isnan(q_node((n-1)*neq+1))) m = m + 1
+ write(71,*) n, (q_node((n-1)*neq+k), k=1,neq)
+! write(71,*)q_node((n-1)*neq+1)
+enddo
+write(*,*) 'NaN nodes in q_node:', m
+close(69)
+close(70)
+close(71)
+CALL tioga_solutions(q_node,neq,nodes)
+!================================================================Qnode calc & tioga soln. called
 !$acc update host(cu(:,:),pg(:),ug(:),vg(:),wg(:),tg(:),rog(:))
 
 !     file1='restart'
@@ -1264,7 +1379,7 @@ end do
 DO ie = 1, neles
    WRITE(25, *) nod(ie, 1), nod(ie, 2), nod(ie, 3), nod(ie, 4)
 END DO   
-
+CALL tioga_fin()
  CLOSE(25)
  CLOSE(9)
  CLOSE(13)

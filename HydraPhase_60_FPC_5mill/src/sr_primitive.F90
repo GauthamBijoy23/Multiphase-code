@@ -16,7 +16,7 @@ SUBROUTINE primitive
 !$acc private(functiong,bbb,psig,ccc,ep,eg,i,startl,endl,aaa,cvg,active) 
 
 do i = 1, ntot
-
+  if (iblank(i) /= 1) cycle
    active = ( i <= neles ) .or. ( i > neles + nghosts )
    if (.not. active) cycle
 

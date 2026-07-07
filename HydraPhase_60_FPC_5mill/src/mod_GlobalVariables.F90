@@ -5,7 +5,8 @@ implicit none
   INTEGER :: NN,NB,NODES,NELES,NGHOSTS,NTOT,MYFLUX,MYORDER,ISTART,TOTAL,NVAR,NITER,ITTER,ITER
   INTEGER :: ITERS,ITERSS,ITERSUB,NEPG,NPARTITIONS,MYID,NPROCS,IERR,PGHOSTS,MAX_PGHOSTS
   INTEGER, ALLOCATABLE :: nparent(:),nghost(:),ntype(:),nside(:),nc1(:),nc2(:),nc3(:),nc4(:),nod(:,:)
-  INTEGER, ALLOCATABLE :: g_id(:),iblank(:)
+  INTEGER, ALLOCATABLE :: btag(:),iblank(:)
+  REAL(DP), ALLOCATABLE :: qcell(:)
   REAL(DP), ALLOCATABLE :: x(:),y(:),z(:),xcel(:),ycel(:)
   REAL(DP), ALLOCATABLE :: zcel(:),vol(:),dl(:)
   REAL(DP), ALLOCATABLE :: sc1x(:),sc1y(:),sc1z(:),sc2x(:),sc2y(:),sc2z(:),sc3x(:),sc3y(:),sc3z(:),sc4x(:),sc4y(:)
@@ -49,7 +50,10 @@ implicit none
   REAL(DP) :: TOLKG,TOLEG
   REAL(DP), ALLOCATABLE :: vistkg(:),visteg(:),tkg(:),teg(:),egtotal(:),eptotal(:)
   REAL(DP), ALLOCATABLE :: delTkgx(:),delTkgy(:),delTkgz(:),delTegx(:),delTegy(:),delTegz(:)
-  
+
+!Variable for Node IDW reconstruction (q values)
+REAL(DP), ALLOCATABLE :: q_node(:)  ! Node q values calculated
+REAL(DP), ALLOCATABLE :: wsum(:)  
   
 !Variable for NP
   INTEGER :: npp

@@ -2,6 +2,7 @@ SUBROUTINE geometry
     USE mpi
     USE GlobalVariables
     USE MatrixOps
+    USE run_tioga, ONLY : iblankcells, nc_t
     IMPLICIT NONE
     
  !--------------------------------------------------------------------
@@ -92,22 +93,16 @@ open(unit=11, file=fname_bc, status="old")
 ! processor-specific proc BC file
 write(fname_procbc,'(A,"proc_bc",I4.4,".in")') trim(geometry_dir), myid
 open(unit=12, file=fname_procbc, status="old")
-       
-! TO CHECK PROPER READING OF GRID ID
-open(unit=66, file="grididread.dat", status="replace",action="write")
-       
+          
     ! Reading nodes and neles 
     ! Rescale if needed 
     read(10,*)nodes,neles
-!allocate(g_id(nodes))   
     do i = 1, nodes
-    read(10,*)n,x(n),y(n),z(n),g_id(n) !(mod3)
-    write(66,*)g_id(n)
+    read(10,*)n,x(n),y(n),z(n),btag(n) !(mod3)
 !        x(n)=x(n)*0.001d0
 !        y(n)=y(n)*0.001d0
 !        z(n)=z(n)*0.001d0
     enddo
-close(66)
     
      xmax = -1.0D30
      ymax = -1.0D30
@@ -124,10 +119,18 @@ close(66)
      end do
         
     do i = 1, neles
-      read(10, *) nel, nod(nel, 1), nod(nel, 2), nod(nel, 3), nod(nel, 4), nc1(nel), nc2(nel), nc3(nel), nc4(nel),iblank(nel)
+      read(10, *) nel, nod(nel, 1), nod(nel, 2), nod(nel, 3), nod(nel, 4), nc1(nel), nc2(nel), nc3(nel), nc4(nel)
     end do
 
-    
+open(unit=15,file='checking_nodes/iblankcellslist.dat',status='replace')
+    do i = 1, neles              ! Replacing iblank cell read from files with iblankcells from tioga (after interpolation)
+       iblank(i)=iblankcells(i)
+       !if(iblankcells(i)==1) then
+       write(15,*)i,iblankcells(i)
+       !endif
+    enddo
+close(15)
+
     read(11, *) nghosts 
     do i = 1, nghosts
       read(11, *) nparent(i), nghost(i), ntype(i), nside(i)
