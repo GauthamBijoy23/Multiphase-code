@@ -98,7 +98,7 @@ open(unit=12, file=fname_procbc, status="old")
     ! Rescale if needed 
     read(10,*)nodes,neles
     do i = 1, nodes
-    read(10,*)n,x(n),y(n),z(n),btag(n) !(mod3)
+    read(10,*)n,x(n),y(n),z(n),btag(n) !(\mod3)
 !        x(n)=x(n)*0.001d0
 !        y(n)=y(n)*0.001d0
 !        z(n)=z(n)*0.001d0

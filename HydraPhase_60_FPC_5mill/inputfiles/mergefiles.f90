@@ -69,12 +69,12 @@ PROGRAM merge_grids
     ! background elements — no offset
     DO i = 1, bg_neles
         READ(10,*) nel, n1, n2, n3, n4, c1, c2, c3, c4,ibc
-        WRITE(20,*) nel, n1, n2, n3, n4, c1, c2, c3, c4,ibc
+        WRITE(20,*) nel, n1, n2, n3, n4, c1, c2, c3, c4
     END DO
 
     ! overset elements — offset nel and nod by bg_neles/bg_nodes, nc by bg_neles
     DO i = 1, ov_neles
-        READ(11,*) nel, n1, n2, n3, n4, c1, c2, c3, c4,ibc
+        READ(11,*) nel, n1, n2, n3, n4, c1, c2, c3, c4
         WRITE(20,*) nel + bg_neles,        &
                     n1  + bg_nodes,        &
                     n2  + bg_nodes,        &
@@ -83,8 +83,7 @@ PROGRAM merge_grids
                     c1  + bg_neles,        &
                     c2  + bg_neles,        &
                     c3  + bg_neles,        &
-                    c4  + bg_neles,        &
-                    ibc
+                    c4  + bg_neles
     END DO
 
     CLOSE(20)
@@ -97,16 +96,20 @@ PROGRAM merge_grids
 
     WRITE(21,*) tot_nghosts
 
-    ! background ghosts — no offset
+    ! background ghosts — offset nghost past tot_neles (bg_neles+ov_neles)
+    ! so they don't collide with overset's real cells. nparent unchanged
+    ! since bg real cell ids (1..bg_neles) are already correct.
     DO i = 1, bg_nghosts
         READ(12,*) np, ng, nt, ns
-        WRITE(21,*) np, ng, nt, ns
+        WRITE(21,*) np, ng + ov_neles, nt, ns
     END DO
 
-    ! overset ghosts — offset nparent and nghost by bg_neles
+    ! overset ghosts — offset nparent by bg_neles, and offset nghost past
+    ! tot_neles AND past all background ghosts, so they land right after
+    ! the background ghost block ends (no collision).
     DO i = 1, ov_nghosts
         READ(13,*) np, ng, nt, ns
-        WRITE(21,*) np + bg_neles, ng + bg_neles, nt, ns
+        WRITE(21,*) np + bg_neles, ng + bg_neles + bg_nghosts, nt, ns
     END DO
 
     CLOSE(21)
@@ -141,4 +144,3 @@ PROGRAM merge_grids
     PRINT*, 'Done. Merged files written to ', trim(outdir)
 
 END PROGRAM merge_grids
-

@@ -4,6 +4,17 @@
 FC = mpif90                # MPI Fortran compiler wrapper (gfortran backend)
 #FC = /opt/nvidia/hpc_sdk/Linux_x86_64/24.5/comm_libs/mpi/bin/mpif90  (mod2)
 
+#Initialising and linking TIOGA libraries
+TIOGA_DIR = $(HOME)/tioga
+TIOGA_INC = \
+ -I$(TIOGA_DIR)/build/driver \
+ -I$(TIOGA_DIR)/build/src
+
+TIOGA_LIB = \
+ -L$(TIOGA_DIR)/build/driver -ltiogadriver \
+ -L$(TIOGA_DIR)/build/src -ltioga \
+ -lstdc++
+
 # GPU architecture (70=V100, 80=A100, 90=H100)
 GPU_ARCH = 70
 
@@ -132,7 +143,8 @@ SRC = \
 # Object files
 OBJ = $(SRC:$(SRC_DIR)/%.F90=$(BUILD_DIR)/%.o)
 
-
+$(BUILD_DIR)/%.o: $(SRC_DIR)/%.F90 | $(BUILD_DIR)
+	$(FC) $(FFLAGS) $(TIOGA_INC) -c $< -J$(BUILD_DIR) -o $@
 # ====================================================
 # Default target
 # ====================================================
@@ -148,17 +160,19 @@ all: $(EXEC)
 # ====================================================
 # Link object files to executable
 # ====================================================
+#$(EXEC): $(OBJ)            (commented out, subs with exec command below)(mod4)
+#	$(FC) $(FFLAGS) -o $@ $^
 $(EXEC): $(OBJ)
-	$(FC) $(FFLAGS) -o $@ $^
-
+	$(FC) $(FFLAGS) -o $@ $^ $(TIOGA_LIB)
 # ====================================================
 # Compile modules and other source files
 # -J$(BUILD_DIR) tells gfortran where to place .mod files
 # ====================================================
-$(BUILD_DIR)/%.o: $(SRC_DIR)/%.F90 | $(BUILD_DIR)
-	$(FC) $(FFLAGS) -c $< -J$(BUILD_DIR) -o $@
+#$(BUILD_DIR)/%.o: $(SRC_DIR)/%.F90 | $(BUILD_DIR)   (mod4)
+#	$(FC) $(FFLAGS) -c $< -J$(BUILD_DIR) -o $@   (mod4)
         #$(FC) $(FFLAGS) -c $< -J$(BUILD_DIR) -o $@ (mod 2)
-
+$(BUILD_DIR)/%.o: $(SRC_DIR)/%.F90 | $(BUILD_DIR)
+	$(FC) $(FFLAGS) $(TIOGA_INC) -c $< -J$(BUILD_DIR) -o $@
 
 # ====================================================
 # Create build directory if it doesn't exist

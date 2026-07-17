@@ -25,7 +25,6 @@ REAL(DP) :: epsilonmax,epsilonmin
 REAL(DP) :: cx, cy, cz, dist, w
 INTEGER  :: m, n, inode
 LOGICAL, ALLOCATABLE :: has_nan(:), has_valid(:)
-INTEGER :: mixed_cnt
 
 !Variable for Y_p
 REAL(DP) :: yfgdt,yogdt,ypgdt,cvg
@@ -92,7 +91,6 @@ LOGICAL :: dir_exists
    close(10)
  !  close(11)
    close(12)
-     
   
   ! Define folder names
   restart_dir = 'restart_files/'
@@ -203,8 +201,6 @@ CALL tioga_init_conn(trim(tioga_input_dir))
    nypg = neq + 3
    neq  = neq + 3
 #endif
-
-if(myid==0) print*, "neq" ,neq
 
 !===================
 !Allocating variable
@@ -469,7 +465,6 @@ endif
 call mpiexcu
 
   ! Initialize viscosity variables
-write(*,*)"Neles,ntot,neq at init line 472 :",neles,ntot,neq
   DO i = 1, neles
    visug(i) = 0.0D0
    visvg(i) = 0.0D0
@@ -594,7 +589,7 @@ CLOSE(99)
 !Call RK subroutine
 !==================
  CALL RK
-      
+
 !$acc serial        
         diffp=0.0d0
         diffu=0.0d0
@@ -731,9 +726,7 @@ DO ie = 1, neles
   END DO
 END DO
 
-mixed_cnt = COUNT(has_nan .AND. has_valid)
-print*, mixed_cnt
-open(unit=78,file='nan_field_cells.dat',status='replace')
+open(unit=78,file='nan_field_cells.dat',status='replace')  !(mod7)
 do ie=1,neles
   if (iblank(ie)==1 .and. cu(ie,1)/=cu(ie,1)) write(78,*) ie
 end do
@@ -742,20 +735,20 @@ close(78)
 open(unit=69,file='checking_nodes/wsum.dat',status='replace')
 open(unit=70,file='checking_nodes/cu.dat',status='replace')
 open(unit=71,file='checking_nodes/q_node.dat',status='replace')
-write(*,*) 'wsum zero count before tioga_solutions:'
+
 m = 0
 do n = 1, nodes
   if (wsum(n) == 0.0) m = m + 1
   write(69,*)wsum(n)
 enddo
-write(*,*) m
+
 ! check cu for NaN
 m = 0
 do ie = 1, neles
   if (isnan(cu(ie,1))) m = m + 1
   write(70,*) (cu(ie,k), k=1,neq)
 enddo
-write(*,*) 'NaN cells in cu:', m
+write(*,*) 'writing cu,wsum,qnode'
 
 ! check q_node for NaN
 m = 0
@@ -764,10 +757,10 @@ do n = 1, nodes
  write(71,*) n, (q_node((n-1)*neq+k), k=1,neq)
 ! write(71,*)q_node((n-1)*neq+1)
 enddo
-write(*,*) 'NaN nodes in q_node:', m
 close(69)
 close(70)
 close(71)
+
 CALL tioga_solutions(q_node,neq,nodes)
 !================================================================Qnode calc & tioga soln. called
 !$acc update host(cu(:,:),pg(:),ug(:),vg(:),wg(:),tg(:),rog(:))
