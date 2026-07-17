@@ -1,0 +1,31 @@
+------------------------------------------------------------------------------------------------------------------------------
+JULY 17, 2026
+------------------------------------------------------------------------------------------------------------------------------
+
+1. Corrected NaN and 0 issue - indexing issue in mergefile where ghost cell numbering clashed with grid numbering
+
+2. Fix removed all NaNs and gave equal number of 0s and solved nodes in qntc and qvals_postinterp - no data update between them
+
+   2.a. NaNs = 0 ; 0s = 5200 - expected as 141080 in iblanknodeslist.dat (MPC generated ib=1 nodes) out of total 146280
+
+3. Turned on dataupdate_mb in tioga - node level data update - now there is diff in number of 0s in qntc vs qvpi - expected
+   
+   3.a.  nan in q_node_tioga_check.dat =   0
+         zero in q_node_tioga_check.dat =  5200
+         nan in qvals_postinterp.dat =     0
+         zero in qvals_postinterp.dat =    3960 
+
+4. Wrote iblank node vals direct from tioga - different values
+
+   4.a. field nodes (iblank=1)  =       139720
+        hole nodes (iblank=0)   =         3960
+        fringe nodes (iblank=-1)=         2600
+ 
+   4.b solution from data update match number of holes from tioga - 3960
+
+
+POSSIBLE SOLUTION :
+------------------- 
+
+5. Let MPC use tioga's iblank node list for IDW node recons.
+   5.a. Look into higher order data update method (tioga) - Cell based interpolation
