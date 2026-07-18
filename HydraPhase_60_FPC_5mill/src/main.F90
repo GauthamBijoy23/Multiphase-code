@@ -3,7 +3,7 @@ PROGRAM Main
   USE GlobalVariables
   USE FluxModule
   USE ISO_C_BINDING
-  USE run_tioga, ONLY : tioga_init_conn, tioga_solutions, tioga_fin, iblankcells, nc_t
+  USE run_tioga, ONLY : tioga_init_conn, tioga_solutions, tioga_fin, iblankcells, nc_t,iblanknodes,cellvals
   implicit none
 
   external Read_flow
@@ -13,7 +13,7 @@ PROGRAM Main
 ! Variable Declarations
 !===========================
 ! Integers
-INTEGER :: i, j, k, l, ie, r, s, v, rv, p, alloc_anu,irank, dummy, writevar
+INTEGER :: i, j, k, l, ie, r, s, v, rv, p, alloc_anu,irank, dummy, writevar,acn
 
 
 ! Reals (double precision)
@@ -670,37 +670,11 @@ if(myid==0) write(23,*)time,vel_mag
 !1742938
 END DO   !-----------Sub-iteration loop over
 
-
-!========================================================= Calculate inverse-distance weighted node q values (mod4) 
-!========================================================= 
-!q_node = 0.0 wsum = 0.0 DO ie = 1, neles
-!  if (iblank(ie) /= 1) CYCLE    ! skip non-field cells
-!  cx = SUM(x(nod(ie,1:4))) / 4.0
-!  cy = SUM(y(nod(ie,1:4))) / 4.0
-!  cz = SUM(z(nod(ie,1:4))) / 4.0
-!  DO m = 1, 4
-!    inode = nod(ie,m)
-!    dist = SQRT((x(inode)-cx)**2 + (y(inode)-cy)**2 + (z(inode)-cz)**2)
-!    w = 1.0 / dist
-!    DO k = 1, neq
-!      q_node((inode-1)*neq+k) = q_node((inode-1)*neq+k) + w*cu(ie,k)
-!    END DO
-!    wsum(inode) = wsum(inode) + w
-!  END DO
-!END DO
-!
-!open(unit=55, file='solved_nodes.dat', status='replace', action='write')
-!DO n = 1, nodes
-!  if (wsum(n) > 0.0) then
-!    DO k = 1, neq
-!      q_node((n-1)*neq+k) = q_node((n-1)*neq+k) / wsum(n)
-!    END DO
-!    write(55,*) n
-!  endif
-!END DO
-!close(55)
-
-ALLOCATE(has_nan(nodes), has_valid(nodes))
+!========================================================= Calculate inverse-distance weighted node q values (mod4)
+!=========================================================
+acn=0      !Active node counter for test (mod8)
+if(.not.allocated(has_nan))allocate(has_nan(nodes))
+if(.not.allocated(has_valid))allocate(has_valid(nodes))
 has_nan = .false.
 has_valid = .false.
 q_node = 0.0
@@ -712,6 +686,8 @@ DO ie = 1, neles
   cz = SUM(z(nod(ie,1:4))) / 4.0
   DO m = 1, 4
     inode = nod(ie,m)
+    if (iblanknodes(inode) /= 1) CYCLE
+    acn=acn+1
     dist = SQRT((x(inode)-cx)**2 + (y(inode)-cy)**2 + (z(inode)-cz)**2)
     w = 1.0 / dist
     IF (cu(ie,1) /= cu(ie,1)) THEN
@@ -725,7 +701,7 @@ DO ie = 1, neles
     END IF
   END DO
 END DO
-
+write(*,*)"ACN= ",acn
 open(unit=78,file='nan_field_cells.dat',status='replace')  !(mod7)
 do ie=1,neles
   if (iblank(ie)==1 .and. cu(ie,1)/=cu(ie,1)) write(78,*) ie
@@ -762,7 +738,18 @@ close(70)
 close(71)
 
 CALL tioga_solutions(q_node,neq,nodes)
-!================================================================Qnode calc & tioga soln. called
+
+do i = 1, neles                                               !copying only fringe cell info into cu (after tioga interp)(mod8)
+  if (iblank(i) == -1) cu(i,1:neq) = cellvals(i,1:neq)
+end do
+
+open(unit=96,file='checking_nodes/cu2.dat',status='replace')  !writing cu after tioga interp. to check (mod8)
+do i = 1, neles
+  write(96,*) (cu(i,k),k=1,neq)
+end do
+close(96)
+
+
 !$acc update host(cu(:,:),pg(:),ug(:),vg(:),wg(:),tg(:),rog(:))
 
 !     file1='restart'

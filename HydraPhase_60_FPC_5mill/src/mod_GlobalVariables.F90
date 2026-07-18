@@ -6,6 +6,7 @@ implicit none
   INTEGER :: ITERS,ITERSS,ITERSUB,NEPG,NPARTITIONS,MYID,NPROCS,IERR,PGHOSTS,MAX_PGHOSTS
   INTEGER, ALLOCATABLE :: nparent(:),nghost(:),ntype(:),nside(:),nc1(:),nc2(:),nc3(:),nc4(:),nod(:,:)
   INTEGER, ALLOCATABLE :: btag(:),iblank(:)
+  INTEGER, ALLOCATABLE :: iblank_node(:)    !To store iblank node vals for IDW node recon. (mod8)
   REAL(DP), ALLOCATABLE :: qcell(:)
   REAL(DP), ALLOCATABLE :: x(:),y(:),z(:),xcel(:),ycel(:)
   REAL(DP), ALLOCATABLE :: zcel(:),vol(:),dl(:)
