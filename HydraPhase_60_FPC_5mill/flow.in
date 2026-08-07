@@ -24,16 +24,18 @@
 0.72       1.0e-3   # prg, epslnmax  
 
 # Solver settings
-1.0e-8     2.0e-8   1.0e-8 # epslnmin, epslninf , phipdrop 
-0.01  2    5 # cfl, niter, itersub  
+1.0e-8     2.0e-8   1.0e-2 # epslnmin, epslninf , phipdrop 
+0.01  3    5 # cfl, niter, itersub  
 0     100.0e-6     # istart, diap  
 0.0        2       # surfacetension, myflux, hllczien,batten,jameson  
-2           0.00728109155421596 110.4   # myorder, as, ts 
+2    0    110.4    # myorder, as, ts   (as=visc coeff Sutherland's law = 0 gives inviscid)
+#2           0.00728109155421596 110.4   # myorder, as, ts 
 
 #Other 3 phases 
 2500.0 1950.0 2700.0   #rhoq, rhor, rhos
 5.0e-6 20.0e-6 7.50e-6 #radq, radr, rads
-0.010 0.25700 0.460 0.1550 0.1180 #phiginit,phipinit,phiqinit, phirinit, phisinit
+1 0 0 0 0 #phiginit,phipinit,phiqinit, phirinit, phisinit  (phig=1 gas takes full vol frac)(rest = 0)
+#0.010 0.25700 0.460 0.1550 0.1180 #phiginit,phipinit,phiqinit, phirinit, phisinit
 2000.0 1460.88 1275.0 54.0 27.8 26.8   #cp_t,cp_o,cp_p,amol_f,amol_o,amol_p
 1.0e-6 8.09 -2.09e6 1.09e9 3307.0   #tolsp,sratio,hfp,preexp,ebyr
 

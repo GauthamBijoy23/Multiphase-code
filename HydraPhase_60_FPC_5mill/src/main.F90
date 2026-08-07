@@ -9,6 +9,8 @@ PROGRAM Main
   external Read_flow
   external geometry
 
+!WRITE WALL_PRESSURE_TRACE NOW AFTER CALL PRIMITIVE, RATHER THAN CALL RK - WRITES PG AFTER INTERPOLATION (mod9)
+
 !===========================
 ! Variable Declarations
 !===========================
@@ -25,6 +27,7 @@ REAL(DP) :: epsilonmax,epsilonmin
 REAL(DP) :: cx, cy, cz, dist, w
 INTEGER  :: m, n, inode
 LOGICAL, ALLOCATABLE :: has_nan(:), has_valid(:)
+LOGICAL,SAVE :: trace_file_started = .false.
 
 !Variable for Y_p
 REAL(DP) :: yfgdt,yogdt,ypgdt,cvg
@@ -47,6 +50,20 @@ character(len=256) :: tioga_input_dir
 
 ! Logical flags
 LOGICAL :: dir_exists
+
+!-------------------Variables to write wall pressure trace----------------(mod9)
+
+LOGICAL, SAVE :: wall_trace_started = .false.
+INTEGER, SAVE :: wall_cells(100000), n_wallcells
+REAL(DP), SAVE :: wall_theta(100000)
+INTEGER :: eid, ios2, wcc
+REAL(DP) :: cell_radius, theta
+
+!--------------------Cp calculation variables (mod9)------------------
+REAL(DP), PARAMETER :: p_inf   = 101325.0d0
+REAL(DP), PARAMETER :: rho_inf = 1.293218976d0
+REAL(DP), PARAMETER :: v_inf   = 33.11969203d0
+REAL(DP) :: cp
 
 !=======================================
 !Createing and cheking necessary folders
@@ -590,91 +607,39 @@ CLOSE(99)
 !==================
  CALL RK
 
-!$acc serial        
-        diffp=0.0d0
-        diffu=0.0d0
-        diffv=0.0d0
-        diffw=0.0d0
-!$acc end serial
-       
-       diffu_global=0.0d0
-       diffv_global=0.0d0
-       diffw_global=0.0d0
-       diffp_global=0.0d0
+!--------------------Writing wall pressure trace (mod9)--------------
 
-
-!=========================
-!Call primitive subroutine
-!=========================
-CALL PRIMITIVE
-
-!================
-!Call mpiexchange 
-!================
- CALL MPIEXCN
-
-! Update differences
-!$acc parallel loop private(i) &
-!$acc present(cu(:,:),cn(:,:),neles,diffp,diffu,diffv,diffw) 
-do i = 1, neles
-    diffp = max(diffp, abs(CN(i, 1) - Cu(i, 1)))
-    diffu = max(diffu, abs(CN(i, 2) - Cu(i, 2)))
-    diffv = max(diffv, abs(CN(i, 3) - Cu(i, 3)))
-    diffw = max(diffw, abs(CN(i, 4) - Cu(i, 4)))
-!    print*,"diffp",diffp
-end do
-!$acc end parallel loop 
-
-!================
-!Call mpiexchange 
-!================
-    call mpiexcn
-
-!$acc parallel loop present(cu(:,:),cn(:,:),ntot,neq)private(i,j) 
-  do i = 1,ntot
-    do j = 1,neq
-    Cu(i, j) = CN(i, j)
-    end do 
-   end do 
-!$acc end parallel loop 
-
-
-!if(total==2) then 
-!do i = 1,neles
-!if(myid==1) print*,"cn11", i, cn(i,11)
-!enddo
-!STOP 
-!endif
-   
-!print*, "diffu",myid,diffu
- 
-!   write(23,72)time,sqrt(ug(6513446)**2+vg(6513446)**2+wg(6513446)**2)
-!72 format(5f16.8)
- 
-!$acc serial present(ug,vg,wg,vel_mag)
-vel_mag = sqrt(ug(1)**2+vg(1)**2+wg(1)**2)  !(mod2) 896880 -> 1 
-!$acc end serial
-
- END DO 
- 
-!$acc update host(time,diffu,diffv,diffw,diffp,vel_mag)
-call MPI_Allreduce(diffu, diffu_global, 1, MPI_DOUBLE_PRECISION, MPI_MAX, MPI_COMM_WORLD, ierr)
-call MPI_Allreduce(diffv, diffv_global, 1, MPI_DOUBLE_PRECISION, MPI_MAX, MPI_COMM_WORLD, ierr)
-call MPI_Allreduce(diffw, diffw_global, 1, MPI_DOUBLE_PRECISION, MPI_MAX, MPI_COMM_WORLD, ierr)
-call MPI_Allreduce(diffp, diffp_global, 1, MPI_DOUBLE_PRECISION, MPI_MAX, MPI_COMM_WORLD, ierr)
-
-
-if(myid==0)PRINT '(I6, 1PE20.10, 5F24.16)', iters, time, diffu_global, diffv_global, diffw_global, diffp_global
-if(myid==0) write(23,*)time,vel_mag  
-
-!1742938
-END DO   !-----------Sub-iteration loop over
+!if (.not. wall_trace_started) then
+!  n_wallcells = 0
+!  open(unit=98,file='checking_nodes/wall_radius.dat',status='old')
+!  do
+!    read(98,*,iostat=ios2) eid, cell_radius, theta
+!    if (ios2/=0) exit
+!    n_wallcells = n_wallcells + 1
+!    wall_cells(n_wallcells) = eid+262314   ! offset must be added if combined grid used (offset= no.bgcells)
+!    wall_theta(n_wallcells) = theta
+!  end do
+!  write(*,*)"wallcells: ",n_wallcells
+!  close(98)
+!  open(unit=99,file='checking_nodes/wall_pressure_trace.dat',status='replace')
+!  write(99,'(A)') '# iter  time  cell_id  pg  cp  theta'
+!  wall_trace_started = .true.
+!else
+!  open(unit=99,file='checking_nodes/wall_pressure_trace.dat',position='append')
+!end if
+!
+!do wcc = 1, n_wallcells
+!  cp = (pg(wall_cells(wcc)) - p_inf) / (0.5d0 * rho_inf * v_inf**2)     ! Calculate and write cp (mod9)
+!  write(99,'(I8,1X,F20.16,1X,I8,1X,F20.10,1X,F20.16,1X,F20.16)') &
+!       iter, time, wall_cells(wcc), pg(wall_cells(wcc)), cp , wall_theta(wcc)
+!end do
+!close(99)
 
 !========================================================= Calculate inverse-distance weighted node q values (mod4)
 !=========================================================
 acn=0      !Active node counter for test (mod8)
-if(.not.allocated(has_nan))allocate(has_nan(nodes))
-if(.not.allocated(has_valid))allocate(has_valid(nodes))
+if(.not.allocated(has_nan)) allocate(has_nan(nodes))
+if(.not.allocated(has_valid)) allocate(has_valid(nodes))
 has_nan = .false.
 has_valid = .false.
 q_node = 0.0
@@ -749,6 +714,113 @@ do i = 1, neles
 end do
 close(96)
 
+!$acc serial        
+        diffp=0.0d0
+        diffu=0.0d0
+        diffv=0.0d0
+        diffw=0.0d0
+!$acc end serial
+       
+       diffu_global=0.0d0
+       diffv_global=0.0d0
+       diffw_global=0.0d0
+       diffp_global=0.0d0
+
+
+!=========================
+!Call primitive subroutine
+!=========================
+CALL PRIMITIVE
+
+!--------------------Writing wall pressure trace (mod9)--------------
+
+if (.not. wall_trace_started) then
+  n_wallcells = 0
+  open(unit=98,file='checking_nodes/wall_radius.dat',status='old')
+  do
+    read(98,*,iostat=ios2) eid, cell_radius, theta
+    if (ios2/=0) exit
+    n_wallcells = n_wallcells + 1
+    wall_cells(n_wallcells) = eid+262314   ! offset must be added if combined grid used (offset= no.bgcells)
+    wall_theta(n_wallcells) = theta
+  end do
+  write(*,*)"wallcells: ",n_wallcells
+  close(98)
+  open(unit=99,file='checking_nodes/wall_pressure_trace.dat',status='replace')
+  write(99,'(A)') '# iter  time  cell_id  pg  cp  theta'
+  wall_trace_started = .true.
+else
+  open(unit=99,file='checking_nodes/wall_pressure_trace.dat',position='append')
+end if
+
+do wcc = 1, n_wallcells
+  cp = (pg(wall_cells(wcc)) - p_inf) / (0.5d0 * rho_inf * v_inf**2)     ! Calculate and write cp (mod9)
+  write(99,'(I8,1X,F20.16,1X,I8,1X,F20.10,1X,F20.16,1X,F20.16)') &
+       iter, time, wall_cells(wcc), pg(wall_cells(wcc)), cp , wall_theta(wcc)
+end do
+close(99)
+
+!================
+!Call mpiexchange 
+!================
+ CALL MPIEXCN
+
+! Update differences
+!$acc parallel loop private(i) &
+!$acc present(cu(:,:),cn(:,:),neles,diffp,diffu,diffv,diffw) 
+do i = 1, neles
+    diffp = max(diffp, abs(CN(i, 1) - Cu(i, 1)))
+    diffu = max(diffu, abs(CN(i, 2) - Cu(i, 2)))
+    diffv = max(diffv, abs(CN(i, 3) - Cu(i, 3)))
+    diffw = max(diffw, abs(CN(i, 4) - Cu(i, 4)))
+!    print*,"diffp",diffp
+end do
+!$acc end parallel loop 
+
+!================
+!Call mpiexchange 
+!================
+    call mpiexcn
+
+!$acc parallel loop present(cu(:,:),cn(:,:),ntot,neq)private(i,j) 
+  do i = 1,ntot
+    do j = 1,neq
+    Cu(i, j) = CN(i, j)
+    end do 
+   end do 
+!$acc end parallel loop 
+
+
+!if(total==2) then 
+!do i = 1,neles
+!if(myid==1) print*,"cn11", i, cn(i,11)
+!enddo
+!STOP 
+!endif
+   
+!print*, "diffu",myid,diffu
+ 
+!   write(23,72)time,sqrt(ug(6513446)**2+vg(6513446)**2+wg(6513446)**2)
+!72 format(5f16.8)
+ 
+!$acc serial present(ug,vg,wg,vel_mag)
+vel_mag = sqrt(ug(1)**2+vg(1)**2+wg(1)**2)  !(mod2) 896880 -> 1 
+!$acc end serial
+
+ END DO 
+ 
+!$acc update host(time,diffu,diffv,diffw,diffp,vel_mag)
+call MPI_Allreduce(diffu, diffu_global, 1, MPI_DOUBLE_PRECISION, MPI_MAX, MPI_COMM_WORLD, ierr)
+call MPI_Allreduce(diffv, diffv_global, 1, MPI_DOUBLE_PRECISION, MPI_MAX, MPI_COMM_WORLD, ierr)
+call MPI_Allreduce(diffw, diffw_global, 1, MPI_DOUBLE_PRECISION, MPI_MAX, MPI_COMM_WORLD, ierr)
+call MPI_Allreduce(diffp, diffp_global, 1, MPI_DOUBLE_PRECISION, MPI_MAX, MPI_COMM_WORLD, ierr)
+
+
+if(myid==0)PRINT '(I6, 1PE20.10, 5F24.16)', iters, time, diffu_global, diffv_global, diffw_global, diffp_global
+if(myid==0) write(23,*)time,vel_mag  
+
+!1742938
+END DO   !-----------Sub-iteration loop over
 
 !$acc update host(cu(:,:),pg(:),ug(:),vg(:),wg(:),tg(:),rog(:))
 

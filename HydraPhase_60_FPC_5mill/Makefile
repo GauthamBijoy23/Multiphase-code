@@ -64,10 +64,10 @@ ISHOCKTUBE ?= OFF
 
 #Flags for GPU compilation 
 #FFLAGS = -O3 -acc  -Minfo=accel -mcmodel=medium -gpu=cc$(GPU_ARCH) -Wa,--noexecstack -cpp   (mod2)
-FFLAGS = -O0 -g -fcheck=all -fbacktrace -mcmodel=medium -cpp
+#FFLAGS = -O0 -g -fcheck=all -fbacktrace -mcmodel=medium -cpp
 
 #Flags for CPU compilation
-#FFLAGS = -O3 -mcmodel=medium  -Wa,--noexecstack -cpp
+FFLAGS = -O3 -mcmodel=medium  -Wa,--noexecstack -cpp
 
 #For 2/5 phase
 ifeq ($(PHASE),5)
