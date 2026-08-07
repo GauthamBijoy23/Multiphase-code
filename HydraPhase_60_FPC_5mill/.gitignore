@@ -1,0 +1,46 @@
+# Build artifacts
+build/
+*.o
+*.mod
+a.out
+
+# Run output / generated data
+restart_files/
+tecplot_files/
+checking_nodes/*.dat
+checking_nodes/comparecu
+checking_nodes/diag
+checking_nodes/rundiag.sh
+cell_trace/
+plottingpressure/
+fort.*
+nan_field_cells.dat
+
+# Generated/partitioned grid & geometry data
+geometry_files/grid_proc*.dat
+geometry_files/bc_proc*.in
+geometry_files/output.dat
+grid_bg.dat
+grid_proc0000.dat
+grididread.dat
+inputfiles/grid_bg.dat
+inputfiles/grid_ovr.dat
+inputfiles/sph_grid_proc.dat
+
+# Compiled utility binaries (keep the .f90 source, not the binary)
+compare
+inputfiles/merge
+inputfiles/convertbg
+inputfiles/convertovr
+getnodes
+addvals
+
+# Archives / bundles
+*.tar.gz
+project.zip
+
+# Stale backups
+src/main.F90.save
+
+# Token file — never commit this
+githubPAT.dat
