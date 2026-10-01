@@ -3,7 +3,7 @@ PROGRAM Main
   USE GlobalVariables
   USE FluxModule
   USE ISO_C_BINDING
-  USE run_tioga, ONLY : tioga_init_conn, tioga_solutions, tioga_fin, iblankcells, nc_t,iblanknodes,cellvals
+  USE run_tioga, ONLY : tioga_init_conn, tioga_solutions, tioga_fin, iblankcells, nc_t,iblanknodes,cellvals,tioga_verify_interp
   implicit none
 
   external Read_flow
@@ -28,6 +28,7 @@ REAL(DP) :: cx, cy, cz, dist, w
 INTEGER  :: m, n, inode
 LOGICAL, ALLOCATABLE :: has_nan(:), has_valid(:)
 LOGICAL,SAVE :: trace_file_started = .false.
+REAL(DP), ALLOCATABLE :: q_node_lin(:)
 
 !Variable for Y_p
 REAL(DP) :: yfgdt,yogdt,ypgdt,cvg
@@ -635,6 +636,11 @@ CLOSE(99)
 !end do
 !close(99)
 
+!------------------------Adding linear field for linear check ----------------(mod9a)
+DO ie = 1, neles
+  qcell((ie-1)*neq+1:(ie-1)*neq+neq) = SUM(x(nod(ie,1:4)))/4.0 + SUM(y(nod(ie,1:4)))/4.0 + SUM(z(nod(ie,1:4)))/4.0
+END DO
+
 !========================================================= Calculate inverse-distance weighted node q values (mod4)
 !=========================================================
 acn=0      !Active node counter for test (mod8)
@@ -673,6 +679,23 @@ do ie=1,neles
 end do
 close(78)
 
+!-------------------linear check------------------
+if (.not. allocated(q_node_lin)) allocate(q_node_lin(nodes*neq))
+q_node_lin = 0.0d0
+DO ie = 1, neles
+  if (iblank(ie) /= 1) CYCLE
+  cx = SUM(x(nod(ie,1:4)))/4.0; cy = SUM(y(nod(ie,1:4)))/4.0; cz = SUM(z(nod(ie,1:4)))/4.0
+  DO m = 1, 4
+    inode = nod(ie,m)
+    if (iblanknodes(inode) /= 1) CYCLE
+    dist = SQRT((x(inode)-cx)**2+(y(inode)-cy)**2+(z(inode)-cz)**2)
+    w = 1.0/dist
+    DO k = 1, neq
+      q_node_lin((inode-1)*neq+k) = q_node_lin((inode-1)*neq+k) + w*qcell((ie-1)*neq+k)
+    END DO
+  END DO
+END DO
+!------------------------------------------------------
 open(unit=69,file='checking_nodes/wsum.dat',status='replace')
 open(unit=70,file='checking_nodes/cu.dat',status='replace')
 open(unit=71,file='checking_nodes/q_node.dat',status='replace')
@@ -703,16 +726,21 @@ close(70)
 close(71)
 
 CALL tioga_solutions(q_node,neq,nodes)
+CALL tioga_verify_interp(q_node_lin, neq, nodes)
+
 
 do i = 1, neles                                               !copying only fringe cell info into cu (after tioga interp)(mod8)
   if (iblank(i) == -1) cu(i,1:neq) = cellvals(i,1:neq)
 end do
 
-open(unit=96,file='checking_nodes/cu2.dat',status='replace')  !writing cu after tioga interp. to check (mod8)
-do i = 1, neles
-  write(96,*) (cu(i,k),k=1,neq)
-end do
-close(96)
+!Uncomment if you want output as file after interpolation - can be used to verify pre and post interp values.
+!
+!
+!open(unit=96,file='checking_nodes/cu2.dat',status='replace')  !writing cu after tioga interp. to check  (mod9b)
+!do i = 1, neles
+!  write(96,*) (cu(i,k),k=1,neq)
+!end do
+!close(96)
 
 !$acc serial        
         diffp=0.0d0
