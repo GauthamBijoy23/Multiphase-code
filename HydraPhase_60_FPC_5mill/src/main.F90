@@ -3,19 +3,19 @@ PROGRAM Main
   USE GlobalVariables
   USE FluxModule
   USE ISO_C_BINDING
-  USE run_tioga, ONLY : tioga_init_conn, tioga_solutions, tioga_fin, iblankcells, nc_t,iblanknodes,cellvals,tioga_verify_interp
+  USE run_tioga, ONLY : tioga_init_conn, tioga_solutions, tioga_fin, iblankcells, nc_t,iblanknodes,cellvals
+  USE run_tioga, ONLY : donor_receptorInfo, donor_inode, donor_dcount, node_off, nblocks   ! Use line for checking donor info (mod10d)
+  USE run_tioga, ONLY : tioga_cell_conn, tioga_solutions_cell, is_CellBased                ! Using Cell based interp. (mod10f)
   implicit none
 
   external Read_flow
   external geometry
 
-!WRITE WALL_PRESSURE_TRACE NOW AFTER CALL PRIMITIVE, RATHER THAN CALL RK - WRITES PG AFTER INTERPOLATION (mod9)
-
 !===========================
 ! Variable Declarations
 !===========================
 ! Integers
-INTEGER :: i, j, k, l, ie, r, s, v, rv, p, alloc_anu,irank, dummy, writevar,acn
+INTEGER :: i, j, k, l, ie, r, s, v, rv, p, alloc_anu,irank, dummy, writevar
 
 
 ! Reals (double precision)
@@ -28,7 +28,6 @@ REAL(DP) :: cx, cy, cz, dist, w
 INTEGER  :: m, n, inode
 LOGICAL, ALLOCATABLE :: has_nan(:), has_valid(:)
 LOGICAL,SAVE :: trace_file_started = .false.
-REAL(DP), ALLOCATABLE :: q_node_lin(:)
 
 !Variable for Y_p
 REAL(DP) :: yfgdt,yogdt,ypgdt,cvg
@@ -52,19 +51,13 @@ character(len=256) :: tioga_input_dir
 ! Logical flags
 LOGICAL :: dir_exists
 
-!-------------------Variables to write wall pressure trace----------------(mod9)
-
-LOGICAL, SAVE :: wall_trace_started = .false.
-INTEGER, SAVE :: wall_cells(100000), n_wallcells
-REAL(DP), SAVE :: wall_theta(100000)
-INTEGER :: eid, ios2, wcc
-REAL(DP) :: cell_radius, theta
-
-!--------------------Cp calculation variables (mod9)------------------
-REAL(DP), PARAMETER :: p_inf   = 101325.0d0
-REAL(DP), PARAMETER :: rho_inf = 1.293218976d0
-REAL(DP), PARAMETER :: v_inf   = 33.11969203d0
-REAL(DP) :: cp
+!Variables for Diagnostics (mod10)
+INTEGER, ALLOCATABLE :: passed(:)   !mod10a
+CHARACTER(len=64) :: afname         !mod10a
+INTEGER :: wsumno,wsumno_tot        !mod10b
+INTEGER :: nno                      !For iblanknode map write out loop  (mod10c)
+INTEGER :: dk_ib, dk_id, dk_m, dk_nw, dk_recv, dk_don, dk_br, dk_bf !for donor info check 
+INTEGER :: dk_nst, dk_nbad, dk_l(2), dk_g(2)
 
 !=======================================
 !Createing and cheking necessary folders
@@ -136,6 +129,38 @@ NVAR = 33
 CALL Read_flow
 
 CALL tioga_init_conn(trim(tioga_input_dir))
+
+WRITE(afname,'(A,I4.4,A)') 'checking_nodes/iblanknodes_', myid, '.dat'         !Write out iblank node map (mod10c)
+OPEN(unit=82, file=TRIM(afname), status='replace')
+DO nno = 1, nodes
+  WRITE(82,*) nno, iblanknodes(nno)
+END DO
+CLOSE(82)                                                                      ! End mod10c
+
+WRITE(afname,'(A,I4.4,A)') 'checking_nodes/donor_check_', myid, '.dat'         !Donor stencil check (if all nodes per donor cell are..
+OPEN(unit=84, file=TRIM(afname), status='replace')                             !..field nodes (mod10d)
+WRITE(84,'(A)') '# donor_block recv_gnode donor_gnode donor_iblank'
+dk_nst = 0; dk_nbad = 0; dk_br = 0; dk_bf = 0
+DO dk_ib = 1, nblocks
+  DO dk_id = 1, donor_dcount(dk_ib)
+    dk_nw   = donor_receptorInfo(dk_br+4*dk_id)
+    dk_recv = node_off(donor_receptorInfo(dk_br+4*dk_id-1)+1) + donor_receptorInfo(dk_br+4*dk_id-2) + 1
+    dk_nst  = dk_nst + 1
+    DO dk_m = 1, dk_nw
+      dk_don = node_off(dk_ib) + donor_inode(dk_bf+dk_m) + 1
+      IF (iblanknodes(dk_don) /= 1) THEN
+        dk_nbad = dk_nbad + 1
+        WRITE(84,'(3I10,I4)') dk_ib, dk_recv, dk_don, iblanknodes(dk_don)
+      END IF
+    END DO
+    dk_bf = dk_bf + dk_nw + 1
+  END DO
+  dk_br = dk_br + 4*donor_dcount(dk_ib)
+END DO
+CLOSE(84)
+dk_l = (/dk_nst, dk_nbad/)
+CALL MPI_Allreduce(dk_l, dk_g, 2, MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD, ierr)
+IF (myid == 0) PRINT*, 'donor stencils / non-field donor nodes (global):', dk_g  ! END mod10d (end of donor stencil check)
 
 !==================================
 ! Base equations: phases
@@ -220,6 +245,8 @@ CALL tioga_init_conn(trim(tioga_input_dir))
    neq  = neq + 3
 #endif
 
+CALL tioga_cell_conn(neq)       !Part of Cell Based interp (mod10f)
+
 !===================
 !Allocating variable
 !===================
@@ -273,6 +300,7 @@ do i = 1, nghosts
   case (2);  n_bc2  = n_bc2  + 1
   case (3);  n_bc3  = n_bc3  + 1
   case (5);  n_bc5  = n_bc5  + 1
+  case (8);  n_bc5  = n_bc5  + 1
   case (51); n_bc51 = n_bc51 + 1
   case (53); n_bc53 = n_bc53 + 1
   end select
@@ -292,6 +320,9 @@ do i = 1, nghosts
     n_bc3 = n_bc3 + 1
     bc3_list(n_bc3) = i
   case (5)
+    n_bc5 = n_bc5 + 1
+    bc5_list(n_bc5) = i
+  case (8)
     n_bc5 = n_bc5 + 1
     bc5_list(n_bc5) = i
   case (51)
@@ -533,12 +564,10 @@ call mpiexcu
 !========================================
 !           Main iteration loop
 !========================================
-OPEN(unit=99, file='checking_nodes/active_cells.dat', status='replace', action='write') !-----writing active cells (mod3)
-do i = 1, neles
-    if(iblank(i) == 1) WRITE(99, *) i
-end do
-CLOSE(99)
   DO iter = 1, niter
+if (allocated(passed)) deallocate(passed)
+ALLOCATE(passed(neles)); passed = 0   !Passed array init. to capture cell ids that passed the iblank check (mod10a)
+
    DO iters = 1, itersub
     DO iterss = 1,1
 !print*,myid," Time loop start"
@@ -558,6 +587,7 @@ CLOSE(99)
 !$acc private(qpi,qgi,i,yfgdt,yogdt,ypgdt,cvg)      
     DO i = 1, neles
     if(iblank(i)/=1)cycle
+    passed(i) = i            !Passed array populated with cell ids that passed iblank check (mod10a)
 #ifdef YP_P
      yfgdt=cu(i,nyfg)/cu(i,1)
      yogdt=cu(i,nyog)/cu(i,1)
@@ -608,42 +638,11 @@ CLOSE(99)
 !==================
  CALL RK
 
-!--------------------Writing wall pressure trace (mod9)--------------
-
-!if (.not. wall_trace_started) then
-!  n_wallcells = 0
-!  open(unit=98,file='checking_nodes/wall_radius.dat',status='old')
-!  do
-!    read(98,*,iostat=ios2) eid, cell_radius, theta
-!    if (ios2/=0) exit
-!    n_wallcells = n_wallcells + 1
-!    wall_cells(n_wallcells) = eid+262314   ! offset must be added if combined grid used (offset= no.bgcells)
-!    wall_theta(n_wallcells) = theta
-!  end do
-!  write(*,*)"wallcells: ",n_wallcells
-!  close(98)
-!  open(unit=99,file='checking_nodes/wall_pressure_trace.dat',status='replace')
-!  write(99,'(A)') '# iter  time  cell_id  pg  cp  theta'
-!  wall_trace_started = .true.
-!else
-!  open(unit=99,file='checking_nodes/wall_pressure_trace.dat',position='append')
-!end if
-!
-!do wcc = 1, n_wallcells
-!  cp = (pg(wall_cells(wcc)) - p_inf) / (0.5d0 * rho_inf * v_inf**2)     ! Calculate and write cp (mod9)
-!  write(99,'(I8,1X,F20.16,1X,I8,1X,F20.10,1X,F20.16,1X,F20.16)') &
-!       iter, time, wall_cells(wcc), pg(wall_cells(wcc)), cp , wall_theta(wcc)
-!end do
-!close(99)
-
-!------------------------Adding linear field for linear check ----------------(mod9a)
-DO ie = 1, neles
-  qcell((ie-1)*neq+1:(ie-1)*neq+neq) = SUM(x(nod(ie,1:4)))/4.0 + SUM(y(nod(ie,1:4)))/4.0 + SUM(z(nod(ie,1:4)))/4.0
-END DO
-
+IF (is_CellBased == 1) THEN                     !Cell Based interp check (mod10f)
+  CALL tioga_solutions_cell(cu, neq)
+ELSE
 !========================================================= Calculate inverse-distance weighted node q values (mod4)
 !=========================================================
-acn=0      !Active node counter for test (mod8)
 if(.not.allocated(has_nan)) allocate(has_nan(nodes))
 if(.not.allocated(has_valid)) allocate(has_valid(nodes))
 has_nan = .false.
@@ -658,7 +657,6 @@ DO ie = 1, neles
   DO m = 1, 4
     inode = nod(ie,m)
     if (iblanknodes(inode) /= 1) CYCLE
-    acn=acn+1
     dist = SQRT((x(inode)-cx)**2 + (y(inode)-cy)**2 + (z(inode)-cz)**2)
     w = 1.0 / dist
     IF (cu(ie,1) /= cu(ie,1)) THEN
@@ -672,75 +670,34 @@ DO ie = 1, neles
     END IF
   END DO
 END DO
-write(*,*)"ACN= ",acn
-open(unit=78,file='nan_field_cells.dat',status='replace')  !(mod7)
-do ie=1,neles
-  if (iblank(ie)==1 .and. cu(ie,1)/=cu(ie,1)) write(78,*) ie
-end do
-close(78)
 
-!-------------------linear check------------------
-if (.not. allocated(q_node_lin)) allocate(q_node_lin(nodes*neq))
-q_node_lin = 0.0d0
-DO ie = 1, neles
-  if (iblank(ie) /= 1) CYCLE
-  cx = SUM(x(nod(ie,1:4)))/4.0; cy = SUM(y(nod(ie,1:4)))/4.0; cz = SUM(z(nod(ie,1:4)))/4.0
-  DO m = 1, 4
-    inode = nod(ie,m)
-    if (iblanknodes(inode) /= 1) CYCLE
-    dist = SQRT((x(inode)-cx)**2+(y(inode)-cy)**2+(z(inode)-cz)**2)
-    w = 1.0/dist
+wsumno = 0                                !Counter to see how many nodes have wsum >0  (mod10b)
+DO inode = 1, nodes                       !Dividing by wsum
+  IF (wsum(inode) > 0.0d0) THEN
+    wsumno = wsumno + 1
     DO k = 1, neq
-      q_node_lin((inode-1)*neq+k) = q_node_lin((inode-1)*neq+k) + w*qcell((ie-1)*neq+k)
+      q_node((inode-1)*neq+k) = q_node((inode-1)*neq+k) / wsum(inode)
     END DO
-  END DO
+  END IF
 END DO
-!------------------------------------------------------
-open(unit=69,file='checking_nodes/wsum.dat',status='replace')
-open(unit=70,file='checking_nodes/cu.dat',status='replace')
-open(unit=71,file='checking_nodes/q_node.dat',status='replace')
+CALL MPI_Allreduce(wsumno, wsumno_tot, 1, MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD, ierr)
+IF (myid == 0) PRINT*, 'wsum>0 nodes (global):', wsumno_tot                   ! END mod10b 
 
-m = 0
-do n = 1, nodes
-  if (wsum(n) == 0.0) m = m + 1
-  write(69,*)wsum(n)
-enddo
-
-! check cu for NaN
-m = 0
-do ie = 1, neles
-  if (isnan(cu(ie,1))) m = m + 1
-  write(70,*) (cu(ie,k), k=1,neq)
-enddo
-write(*,*) 'writing cu,wsum,qnode'
-
-! check q_node for NaN
-m = 0
-do n = 1, nodes
-  if (isnan(q_node((n-1)*neq+1))) m = m + 1
- write(71,*) n, (q_node((n-1)*neq+k), k=1,neq)
-! write(71,*)q_node((n-1)*neq+1)
-enddo
-close(69)
-close(70)
-close(71)
+WRITE(afname,'(A,I4.4,A)') 'checking_nodes/wsum_nodes_', myid, '.dat'          !Writing out wsum for check (mod10c)
+OPEN(unit=83, file=TRIM(afname), status='replace')
+DO n = 1, nodes
+  IF (wsum(n) > 0.0d0) WRITE(83,*) n
+END DO
+CLOSE(83)
 
 CALL tioga_solutions(q_node,neq,nodes)
-CALL tioga_verify_interp(q_node_lin, neq, nodes)
 
 
 do i = 1, neles                                               !copying only fringe cell info into cu (after tioga interp)(mod8)
   if (iblank(i) == -1) cu(i,1:neq) = cellvals(i,1:neq)
 end do
 
-!Uncomment if you want output as file after interpolation - can be used to verify pre and post interp values.
-!
-!
-!open(unit=96,file='checking_nodes/cu2.dat',status='replace')  !writing cu after tioga interp. to check  (mod9b)
-!do i = 1, neles
-!  write(96,*) (cu(i,k),k=1,neq)
-!end do
-!close(96)
+ENDIF                                                         ! End if of condition that checks is_CellBased
 
 !$acc serial        
         diffp=0.0d0
@@ -759,34 +716,6 @@ end do
 !Call primitive subroutine
 !=========================
 CALL PRIMITIVE
-
-!--------------------Writing wall pressure trace (mod9)--------------
-
-if (.not. wall_trace_started) then
-  n_wallcells = 0
-  open(unit=98,file='checking_nodes/wall_radius.dat',status='old')
-  do
-    read(98,*,iostat=ios2) eid, cell_radius, theta
-    if (ios2/=0) exit
-    n_wallcells = n_wallcells + 1
-    wall_cells(n_wallcells) = eid+262314   ! offset must be added if combined grid used (offset= no.bgcells)
-    wall_theta(n_wallcells) = theta
-  end do
-  write(*,*)"wallcells: ",n_wallcells
-  close(98)
-  open(unit=99,file='checking_nodes/wall_pressure_trace.dat',status='replace')
-  write(99,'(A)') '# iter  time  cell_id  pg  cp  theta'
-  wall_trace_started = .true.
-else
-  open(unit=99,file='checking_nodes/wall_pressure_trace.dat',position='append')
-end if
-
-do wcc = 1, n_wallcells
-  cp = (pg(wall_cells(wcc)) - p_inf) / (0.5d0 * rho_inf * v_inf**2)     ! Calculate and write cp (mod9)
-  write(99,'(I8,1X,F20.16,1X,I8,1X,F20.10,1X,F20.16,1X,F20.16)') &
-       iter, time, wall_cells(wcc), pg(wall_cells(wcc)), cp , wall_theta(wcc)
-end do
-close(99)
 
 !================
 !Call mpiexchange 
@@ -1458,7 +1387,15 @@ end do
   ! Loop over elements for nodal data
 DO ie = 1, neles
    WRITE(25, *) nod(ie, 1), nod(ie, 2), nod(ie, 3), nod(ie, 4)
-END DO   
+END DO
+
+WRITE(afname,'(A,I4.4,A)') 'checking_nodes/passed_cells_', myid, '.dat'   !Writing passed iblank cell ids (mod10a)
+OPEN(unit=81, file=TRIM(afname), status='replace')
+DO i = 1, neles
+  IF (passed(i) > 0) WRITE(81,*) i
+END DO
+CLOSE(81)
+   
 CALL tioga_fin()
  CLOSE(25)
  CLOSE(9)

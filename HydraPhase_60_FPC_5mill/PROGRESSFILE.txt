@@ -29,3 +29,53 @@ POSSIBLE SOLUTION :
 
 5. Let MPC use tioga's iblank node list for IDW node recons.
    5.a. Look into higher order data update method (tioga) - Cell based interpolation
+
+------------------------------------------------------------------------------------------------------------------------------
+OCTOBER 16, 2026
+------------------------------------------------------------------------------------------------------------------------------
+
+1. Stripped away most of the diagnostic files and routines
+2. Added wsum normalisation which was missing (?)  [in main.f90]
+3. Added offset counter called coff [in run_tioga] to rectify g pointer not having offset issue.
+4. Started new round of diagnostics (mod 10):
+
+                    mod 10a : 'passed' array records cell ids that pass iblank check in main loop to compare with iblankmap.
+                               only checks the last iteration due to placement of deallocate(passed)
+ 
+                    mod 10b : the wsum normalisation step.
+
+------------------------------------------------------------------------------------------------------------------------------
+OCTOBER 17, 2026
+------------------------------------------------------------------------------------------------------------------------------
+
+1. Added some checks for donor stencil, number of wsum nodes (confirming number of iblank =1) and
+   also how many and which type of cells were updated in the tioga dataupdate. (ALL FINE)
+
+2. Added the steps for cell based interpolation. (MOD10F)  !!!  Other mods between mod10b and mod10f exist !!!!  [CAREFUL]
+	
+	2.a. There is is_CellBased in tioga (flag for turning on cell based interp) [associated declarations have been made]
+
+        2.b. Higher order callbacks use only local cell indices so gr(ib), tioga_cb_meshtag and others are used to create a global
+             block id identifier to give the correct cell ids to the callbacks
+
+3. tioga_solutions_cell is not called under a is_CellBased check (in main) - the check is inside the tioga subroutine so 
+             doesnt run if is_CellBased =0 even if called
+
+4. More utilities from norma tioga_solutions can be ported to tioga_solutions_cell.
+5. can add post and pre interp checks in both normal and cell based interp
+6. There is extra checking code as part of step 7,8 in claude's answer. !!!!!!!!!!!!!!!!-DO 4,5 TOMORROW.-!!!!!!!!!!!!!!!!!
+
+
+------------------------------------------------------------------------------------------------------------------------------
+OCTOBER 18, 2026
+------------------------------------------------------------------------------------------------------------------------------
+
+1. Found issue with overset grid not having any fringe cells, which results in communication being one way (Ovr -> BG only)
+   Issue fixed with providing overset boundary nodes at the end of tioga's input file for ovr grid
+
+2. Multiple cases were run. in both no wb+ovb nodes case and just wb nodes, there were no changes. Changes happened
+   only when ovb nodes were included.
+
+3. Refer to file Overset_inp_Cases.txt for more detail (in /mnt/c/Fortran)
+
+

@@ -25,7 +25,7 @@
 
 # Solver settings
 1.0e-8     2.0e-8   1.0e-2 # epslnmin, epslninf , phipdrop 
-0.01  3    5 # cfl, niter, itersub  
+0.01  2    1 # cfl, niter, itersub  
 0     100.0e-6     # istart, diap  
 0.0        2       # surfacetension, myflux, hllczien,batten,jameson  
 2    0    110.4    # myorder, as, ts   (as=visc coeff Sutherland's law = 0 gives inviscid)
